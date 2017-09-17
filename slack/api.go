@@ -1,6 +1,11 @@
 // Package slack provides structs to ease interactions with the slack API.
 package slack
 
+const (
+	// PostEphemeralRoute is the route used for posting ephermal messages.
+	PostEphemeralRoute = "https://slack.com/api/chat.postEphemeral"
+)
+
 // Body provides a way to structure and work with the standard slack /command response.
 type Body struct {
 	Token        string `schema:"token"`
@@ -101,4 +106,16 @@ type ConfirmButton struct {
 	Text        string `json:"text"`
 	OkText      string `json:"ok_text"`
 	DismissText string `json:"dismiss_text"`
+}
+
+// PostEphemeralPayload contains the payload data needed for using the postEphemeral API endpoint.
+type PostEphemeralPayload struct {
+	Token       string `schema:"token"`
+	Channel     string `schema:"channel"`
+	Text        string `schema:"text"`
+	User        string `schema:"user"`
+	AsUser      bool   `schema:"as_user,omitempty"`
+	Attachments string `schema:"attachments,omitempty"`
+	LinkNames   bool   `schema:"link_names,omitempty"`
+	Parse       string `schema:"parse,omitempty"`
 }
