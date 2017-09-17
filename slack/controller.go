@@ -91,7 +91,7 @@ func (controller *controller) HandleGameAccept(w http.ResponseWriter, r *http.Re
 			sessionID = textTokens[0]
 		}
 
-		controller.processAcceptAction(sessionID, body.ResponseURL, w)
+		controller.processAcceptAction(sessionID, body.UserName, body.ResponseURL, w)
 	}
 
 }
@@ -153,7 +153,7 @@ func (controller *controller) processChallengeAction(challenger string, target s
 
 }
 
-func (controller *controller) processAcceptAction(gameSessionUUID string, responseURL string, w http.ResponseWriter) {
+func (controller *controller) processAcceptAction(gameSessionUUID, target, responseURL string, w http.ResponseWriter) {
 	var (
 		slackAttachmentActions   []AttachmentAction
 		slackAttachmentActionMap = make(map[string]AttachmentAction)
@@ -168,6 +168,11 @@ func (controller *controller) processAcceptAction(gameSessionUUID string, respon
 
 		if !validSlackData(v.Data) {
 			fmt.Fprint(w, "The provided game session does not support slack")
+			return
+		}
+
+		if v.Target != target {
+			fmt.Fprint(w, "You are not the user being challenged")
 			return
 		}
 
