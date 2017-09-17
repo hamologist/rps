@@ -10,7 +10,8 @@ import (
 	"os"
 	"strings"
 
-	"bitbucket.org/hamologist/rps-go/game"
+	"bitbucket.org/hamologist/rps/game"
+	"bitbucket.org/hamologist/rps/server"
 	"github.com/gorilla/schema"
 )
 
@@ -21,17 +22,19 @@ var (
 	encoder     = schema.NewEncoder()
 )
 
-type controller struct {
-	gameServer *gameServer
+type payloadValue struct {
+	Move      string `json:"move"`
+	SessionID string `json:"session_id"`
 }
 
-func (controller controller) HandleStandardGame(w http.ResponseWriter, r *http.Request) {
+type controller struct {
+	*server.GameServer
+}
+
+func (controller *controller) HandleGameRequest(w http.ResponseWriter, r *http.Request) {
 	var (
-		action          string
-		param           string
-		body            slackBody
-		payloadResponse slackPayloadResponse
-		payload         slackPayload
+		target string
+		body   Body
 	)
 
 	if r.Method == "POST" {
@@ -46,44 +49,92 @@ func (controller controller) HandleStandardGame(w http.ResponseWriter, r *http.R
 			return
 		}
 
-		if _, ok := r.PostForm["payload"]; ok {
-			decoder.Decode(&payloadResponse, r.PostForm)
-			if err != nil {
-				log.Print(err)
-			}
-			json.Unmarshal([]byte(payloadResponse.Payload), &payload)
-
-			controller.processPayload(payload, w)
-		} else {
-			err = decoder.Decode(&body, r.PostForm)
-			if err != nil {
-				log.Print(err)
-			}
-			textTokens := strings.Split(body.Text, " ")
-
-			if len(textTokens) > 1 {
-				action = textTokens[0]
-				param = textTokens[1]
-			}
-
-			if action == challengeAction {
-				controller.processChallengeAction(body.UserName, param, body.ResponseURL, w)
-			} else if action == acceptAction {
-				controller.processAcceptAction(param, body.ResponseURL, w)
-			}
+		err = decoder.Decode(&body, r.PostForm)
+		if err != nil {
+			log.Print(err)
 		}
+		textTokens := strings.Split(body.Text, " ")
+
+		if len(textTokens) >= 1 {
+			target = textTokens[0]
+		}
+
+		controller.processChallengeAction(body.UserName, target, body.ResponseURL, w)
 	}
 }
 
-func (controller *controller) processChallengeAction(challenger string, target string, responseUrl string, w http.ResponseWriter) {
-	target = strings.Replace(target, "@", "", 1)
-	uuid := controller.gameServer.GameSessionsManager.createSession(challenger, target, responseUrl)
+func (controller *controller) HandleGameAccept(w http.ResponseWriter, r *http.Request) {
+	var (
+		sessionID string
+		body      Body
+	)
 
-	resp := slackResponse{
+	if r.Method == "POST" {
+		if debug {
+			controller.logRequest(r)
+		}
+
+		err := r.ParseForm()
+		if err != nil {
+			log.Print(err)
+			fmt.Fprint(w, "An error occurred while proccessing your response")
+			return
+		}
+
+		err = decoder.Decode(&body, r.PostForm)
+		if err != nil {
+			log.Print(err)
+		}
+		textTokens := strings.Split(body.Text, " ")
+
+		if len(textTokens) >= 1 {
+			sessionID = textTokens[0]
+		}
+
+		controller.processAcceptAction(sessionID, body.ResponseURL, w)
+	}
+
+}
+
+func (controller *controller) HandleGamePayload(w http.ResponseWriter, r *http.Request) {
+	var (
+		payloadResponse PayloadResponse
+		payload         Payload
+	)
+
+	if r.Method == "POST" {
+		if debug {
+			controller.logRequest(r)
+		}
+
+		err := r.ParseForm()
+		if err != nil {
+			log.Print(err)
+			fmt.Fprint(w, "An error occurred while proccessing your response")
+			return
+		}
+
+		decoder.Decode(&payloadResponse, r.PostForm)
+		if err != nil {
+			log.Print(err)
+		}
+		json.Unmarshal([]byte(payloadResponse.Payload), &payload)
+
+		controller.processPayload(payload, w)
+	}
+
+}
+
+func (controller *controller) processChallengeAction(challenger string, target string, responseURL string, w http.ResponseWriter) {
+	target = strings.Replace(target, "@", "", 1)
+	slackData := createSlackData(gameSessionInitiatedStatus, responseURL, "")
+	uuid := controller.GameSessionsManager.CreateSession(challenger, target, slackData)
+
+	resp := Response{
 		ResponseType: inChannelResponse,
 		Text: fmt.Sprintf(
-			"%v, @%v has challenged you to a game of rock, paper, scissors. "+
-				"Please use `/%v accept %v` to accept.",
+			"@%v, @%v has challenged you to a game of rock, paper, scissors. "+
+				"Please use `/%v %v` to accept.",
 			target,
 			challenger,
 			commandName,
@@ -102,25 +153,33 @@ func (controller *controller) processChallengeAction(challenger string, target s
 
 }
 
-func (controller *controller) processAcceptAction(gameSessionUUID string, responseUrl string, w http.ResponseWriter) {
+func (controller *controller) processAcceptAction(gameSessionUUID string, responseURL string, w http.ResponseWriter) {
 	var (
-		slackAttachmentActions   []slackAttachmentAction
-		slackAttachmentActionMap = make(map[string]slackAttachmentAction)
-		challengerResponseUrl    string
+		slackAttachmentActions   []AttachmentAction
+		slackAttachmentActionMap = make(map[string]AttachmentAction)
+		challengerResponseURL    string
+		status                   string
 	)
-	gameMoves := controller.gameServer.Game.Moves
-	preferredMoveOrder := controller.gameServer.Game.PreferredOrder
-	gameSessions := controller.gameServer.GameSessionsManager.GameSessions
+	gameMoves := controller.Game.Moves
+	preferredMoveOrder := controller.Game.PreferredOrder
+	gameSessions := controller.GameSessionsManager.GameSessions
 
 	if v, ok := gameSessions[gameSessionUUID]; ok {
 
-		if v.status != gameSessionInitiatedStatus {
-			fmt.Fprint(w, "The provided game session id has already been accepted.")
+		if !validSlackData(v.Data) {
+			fmt.Fprint(w, "The provided game session does not support slack")
 			return
 		}
 
-		v.targetResponseUrl = responseUrl
-		challengerResponseUrl = v.challengerResponseUrl
+		status = v.Data["status"]
+		challengerResponseURL = v.Data["challengerResponseUrl"]
+
+		if status != gameSessionInitiatedStatus {
+			fmt.Fprint(w, "The provided game session id has already been accepted")
+			return
+		}
+
+		v.Data["targetResponseUrl"] = responseURL
 
 		for _, v := range gameMoves {
 			jsonData, err := json.Marshal(map[string]string{
@@ -129,7 +188,7 @@ func (controller *controller) processAcceptAction(gameSessionUUID string, respon
 			})
 
 			if err == nil {
-				slackAttachmentActionMap[v.Name] = slackAttachmentAction{
+				slackAttachmentActionMap[v.Name] = AttachmentAction{
 					Name:  "move",
 					Text:  strings.Title(v.Name),
 					Type:  "button",
@@ -146,11 +205,11 @@ func (controller *controller) processAcceptAction(gameSessionUUID string, respon
 			slackAttachmentActions = append(slackAttachmentActions, slackAttachmentActionMap[move])
 		}
 
-		resp := slackResponse{
+		resp := Response{
 			ResponseType: ephemeralResponse,
 			Text:         "RPS initiated",
-			Attachments: []slackAttachment{
-				slackAttachment{
+			Attachments: []Attachment{
+				Attachment{
 					Text:           "Please select your move",
 					Fallback:       "You are unable to choose a move",
 					CallbackID:     "player_move_selection",
@@ -168,14 +227,15 @@ func (controller *controller) processAcceptAction(gameSessionUUID string, respon
 		} else {
 			w.Header().Set("Content-Type", "application/json")
 			w.Write(js)
-			http.Post(challengerResponseUrl, "application/json", bytes.NewBuffer(js))
+			http.Post(challengerResponseURL, "application/json", bytes.NewBuffer(js))
+			v.Data["status"] = gameSessionAcceptedStatus
 		}
 	} else {
 		fmt.Fprint(w, "The provided game session id is not valid. Game session either doesn't exist or has expired.")
 	}
 }
 
-func (controller *controller) processPayload(payload slackPayload, w http.ResponseWriter) {
+func (controller *controller) processPayload(payload Payload, w http.ResponseWriter) {
 	if len(payload.Actions) == 0 {
 		fmt.Fprint(w, "No action was submitted")
 		return
@@ -185,17 +245,17 @@ func (controller *controller) processPayload(payload slackPayload, w http.Respon
 		payloadValue payloadValue
 		playResult   string
 	)
-	gameSessions := controller.gameServer.GameSessionsManager.GameSessions
+	gameSessions := controller.GameSessionsManager.GameSessions
 	user := payload.User.Name
 	json.Unmarshal([]byte(payload.Actions[0].Value), &payloadValue)
 
 	if v, ok := gameSessions[payloadValue.SessionID]; ok {
-		if user == v.challenger {
-			v.challengerMove = payloadValue.Move
+		if user == v.Challenger {
+			v.ChallengerMove = payloadValue.Move
 			gameSessions[payloadValue.SessionID] = v
 			fmt.Fprint(w, "Your move has been locked in")
-		} else if user == v.target {
-			v.targetMove = payloadValue.Move
+		} else if user == v.Target {
+			v.TargetMove = payloadValue.Move
 			gameSessions[payloadValue.SessionID] = v
 			fmt.Fprint(w, "Your move has been locked in")
 		} else {
@@ -203,8 +263,8 @@ func (controller *controller) processPayload(payload slackPayload, w http.Respon
 			return
 		}
 
-		if len(v.challengerMove) != 0 && len(v.targetMove) != 0 {
-			result, err := controller.gameServer.Game.Play(v.challengerMove, v.targetMove)
+		if len(v.ChallengerMove) != 0 && len(v.TargetMove) != 0 {
+			result, err := controller.Game.Play(v.ChallengerMove, v.TargetMove)
 
 			if err != nil {
 				fmt.Fprint(w, err)
@@ -214,29 +274,29 @@ func (controller *controller) processPayload(payload slackPayload, w http.Respon
 			if result == game.GameStatePlayerOneWins {
 				playResult = fmt.Sprintf(
 					"@%v defeated @%v, %v beats %v",
-					v.challenger,
-					v.target,
-					v.challengerMove,
-					v.targetMove,
+					v.Challenger,
+					v.Target,
+					v.ChallengerMove,
+					v.TargetMove,
 				)
 			} else if result == game.GameStatePlayerTwoWins {
 				playResult = fmt.Sprintf(
 					"@%v defeated @%v, %v beats %v",
-					v.challenger,
-					v.target,
-					v.targetMove,
-					v.challengerMove,
+					v.Target,
+					v.Challenger,
+					v.TargetMove,
+					v.ChallengerMove,
 				)
 			} else {
 				playResult = fmt.Sprintf(
-					"@%v and %v had a draw. Both played %v",
-					v.challenger,
-					v.target,
-					v.targetMove,
+					"@%v and @%v had a draw. Both played %v",
+					v.Challenger,
+					v.Target,
+					v.TargetMove,
 				)
 			}
 
-			resp := slackResponse{
+			resp := Response{
 				ResponseType: inChannelResponse,
 				Text:         playResult,
 			}
@@ -246,7 +306,7 @@ func (controller *controller) processPayload(payload slackPayload, w http.Respon
 				log.Print(err)
 				fmt.Fprint(w, "An error occurred while proccessing the game")
 			} else {
-				http.Post(v.challengerResponseUrl, "application/json", bytes.NewBuffer(js))
+				http.Post(v.Data["challengerResponseUrl"], "application/json", bytes.NewBuffer(js))
 			}
 		}
 	} else {
@@ -255,7 +315,7 @@ func (controller *controller) processPayload(payload slackPayload, w http.Respon
 	}
 }
 
-func (controller controller) logRequest(r *http.Request) {
+func (controller *controller) logRequest(r *http.Request) {
 	requestDump, err := httputil.DumpRequest(r, true)
 	if err != nil {
 		log.Print(err)
@@ -263,9 +323,9 @@ func (controller controller) logRequest(r *http.Request) {
 	log.Print(string(requestDump))
 }
 
-func newController(gameServer *gameServer) *controller {
+func newController(gameServer *server.GameServer) *controller {
 	return &controller{
-		gameServer: gameServer,
+		GameServer: DefaultGameServer,
 	}
 }
 
@@ -274,6 +334,6 @@ func init() {
 	commandName = os.Getenv("RPS_COMMAND_NAME")
 
 	if commandName == "" {
-		commandName = defaultCommandName
+		commandName = defaultAcceptCommandName
 	}
 }
