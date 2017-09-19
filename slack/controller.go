@@ -99,10 +99,8 @@ func (controller *controller) processChallengeAction(challenger, challengerName,
 		slackAttachmentActions   []AttachmentAction
 		slackAttachmentActionMap = make(map[string]AttachmentAction)
 	)
-	target = strings.Replace(target, "@", "", 1)
+	target = strings.Split(strings.Replace(target, "<@", "", 1), "|")[0]
 	targetInfo, err := API.GetUserInfo(target)
-	targetName := targetInfo.Name
-	form := url.Values{}
 
 	if err != nil {
 		fmt.Fprint(w,
@@ -111,6 +109,8 @@ func (controller *controller) processChallengeAction(challenger, challengerName,
 		)
 		return
 	}
+	targetName := targetInfo.Name
+	form := url.Values{}
 
 	slackData := createSlackData(channel, challengerName, targetName)
 	uuid := controller.GameSessionsManager.CreateSession(challenger, target, slackData)
