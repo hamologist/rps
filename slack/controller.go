@@ -12,8 +12,8 @@ import (
 
 	"github.com/nlopes/slack"
 
-	"bitbucket.org/hamologist/rps/game"
-	"bitbucket.org/hamologist/rps/server"
+	"github.com/hamologist/rps/game"
+	"github.com/hamologist/rps/server"
 	"github.com/gorilla/schema"
 )
 

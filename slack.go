@@ -5,7 +5,7 @@ import (
 	"net/http"
 	"os"
 
-	"bitbucket.org/hamologist/rps/slack"
+	"github.com/hamologist/rps/slack"
 )
 
 // DefaultPort defines the default application port that will be used on startup

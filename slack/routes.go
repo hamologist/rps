@@ -1,6 +1,6 @@
 package slack
 
-import "bitbucket.org/hamologist/rps/server"
+import "github.com/hamologist/rps/server"
 
 const (
 	// HandleGameRequestRoute defines the routes used by the HandleGameRequest controller method

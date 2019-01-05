@@ -6,8 +6,8 @@ import (
 
 	"github.com/nlopes/slack"
 
-	"bitbucket.org/hamologist/rps/game/modes"
-	"bitbucket.org/hamologist/rps/server"
+	"github.com/hamologist/rps/game/modes"
+	"github.com/hamologist/rps/server"
 )
 
 const (

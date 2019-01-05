@@ -6,7 +6,7 @@ import (
 
 	"github.com/satori/go.uuid"
 
-	"bitbucket.org/hamologist/rps/game"
+	"github.com/hamologist/rps/game"
 )
 
 // GameServer defines a server/session/game coupling used for simulating games of RPS.
@@ -33,7 +33,7 @@ type SessionManager struct {
 
 // GameSession defines the data used by a game session.
 // GameSession's Data field is intended for storing data specific to a consumer
-// (see the bitbucket.org/hamologist/rps/slack package for an example).
+// (see the github.com/hamologist/rps/slack package for an example).
 type GameSession struct {
 	Timestamp      time.Time
 	Challenger     string

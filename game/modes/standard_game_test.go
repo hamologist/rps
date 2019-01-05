@@ -1,7 +1,7 @@
 package modes
 
 import (
-	"bitbucket.org/hamologist/rps/game"
+	"github.com/hamologist/rps/game"
 	"testing"
 )
 
